@@ -1,48 +1,209 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Deep Music Player</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Deep Music Player — Protected</title>
   <style>
     body {
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      align-items: center;
-      min-height: 100vh;
-      background: #f9f9f9;
-      font-family: Arial, sans-serif;
+      display:flex;
+      flex-direction:column;
+      justify-content:center;
+      align-items:center;
+      min-height:100vh;
+      background:#f9f9f9;
+      font-family:Arial,Helvetica,sans-serif;
+      margin:0;
+      padding:20px;
     }
-    audio {
-      width: 320px;
-      margin-bottom: 10px;
+    .player-wrap { text-align:center; }
+    audio { width:320px; margin-bottom:10px; }
+    .watermark { font-size:12px; color:#555; }
+    .watermark a { color:#555; text-decoration:none; font-weight:bold; }
+    .watermark a:hover { text-decoration:underline; }
+
+    /* Overlay shown when blocked */
+    .overlay {
+      position:fixed;
+      inset:0;
+      background:rgba(0,0,0,0.85);
+      color:#fff;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      flex-direction:column;
+      z-index:9999;
+      font-family:monospace;
+      text-align:center;
+      padding:20px;
+      box-sizing:border-box;
     }
-    .watermark {
-      font-size: 12px;
-      color: #555;
-    }
-    .watermark a {
-      color: #555;
-      text-decoration: none;
-      font-weight: bold;
-    }
-    .watermark a:hover {
-      text-decoration: underline;
-    }
+    .overlay.hidden { display:none; }
+    .overlay .count { font-size:48px; margin-top:10px; font-weight:700; }
+    .note { font-size:14px; color:#ddd; margin-top:8px; max-width:600px; }
   </style>
 </head>
 <body>
 
-  <audio controls preload="none" controlsList="nodownload">
-    <!-- apna actual mp3 link daalna -->
-    <source src="(6) Saiyaara Reprise - Female ~ Tanishk Bagchi, Faheem Abdullah, Arslan Nizami, Shreya Ghoshal, Irshad Kamil.mp3" type="audio/mpeg">
-    Your browser does not support the audio element.
-  </audio>
+  <div class="player-wrap" id="wrap">
+    <audio id="audio" controls preload="none" controlsList="nodownload" crossorigin="anonymous">
+      <source src="(6) Saiyaara Reprise - Female ~ Tanishk Bagchi, Faheem Abdullah, Arslan Nizami, Shreya Ghoshal, Irshad Kamil.mp3" type="audio/mpeg">
+      Your browser does not support the audio element.
+    </audio>
 
-  <div class="watermark">
-    powered by <a href="https://www.deepdeyiitk.com" target="_blank">Deep</a>
+    <div class="watermark">
+      powered by <a href="https://www.deepdeyiitk.com" target="_blank" rel="noopener">Deep</a>
+    </div>
   </div>
+
+  <!-- Blocking overlay (hidden by default) -->
+  <div id="blockOverlay" class="overlay hidden" aria-hidden="true">
+    <div style="font-size:20px;">Interaction temporarily disabled</div>
+    <div class="note">Multiple blocked attempts detected. Try again after the countdown.</div>
+    <div class="count" id="countdown">30</div>
+  </div>
+
+<script>
+/*
+  Behavior:
+  - Only left mouse button (button === 0) allowed.
+  - Right-click/contextmenu blocked and counts as an attempt.
+  - Developer-key shortcuts blocked (Ctrl+U, Ctrl+Shift+I/J, F12, Ctrl+S).
+  - After 3 blocked attempts -> show overlay for 30 seconds (full block).
+  - This is a deterrent only; not foolproof.
+*/
+
+const MAX_ATTEMPTS = 3;
+const BLOCK_SECONDS = 30;
+
+let attempts = 0;
+let blocked = false;
+
+const overlay = document.getElementById('blockOverlay');
+const countdownEl = document.getElementById('countdown');
+const audio = document.getElementById('audio');
+const wrap = document.getElementById('wrap');
+
+// Helper to register a blocked attempt
+function registerAttempt() {
+  if (blocked) return;
+  attempts++;
+  // Optional: small visual feedback (flash)
+  wrap.style.opacity = 0.9;
+  setTimeout(() => wrap.style.opacity = 1, 120);
+
+  if (attempts >= MAX_ATTEMPTS) {
+    triggerBlock();
+  }
+}
+
+// Show overlay and disable interactions for BLOCK_SECONDS
+function triggerBlock() {
+  blocked = true;
+  // Pause audio and disable controls
+  try { audio.pause(); audio.controls = false; } catch(e){}
+
+  overlay.classList.remove('hidden');
+  overlay.setAttribute('aria-hidden', 'false');
+
+  let remaining = BLOCK_SECONDS;
+  countdownEl.textContent = remaining;
+
+  const timer = setInterval(() => {
+    remaining--;
+    countdownEl.textContent = remaining;
+    if (remaining <= 0) {
+      clearInterval(timer);
+      overlay.classList.add('hidden');
+      overlay.setAttribute('aria-hidden', 'true');
+      // reset
+      attempts = 0;
+      blocked = false;
+      try { audio.controls = true; } catch(e){}
+    }
+  }, 1000);
+}
+
+/* Prevent right-click (context menu) */
+document.addEventListener('contextmenu', function(e) {
+  e.preventDefault();
+  registerAttempt();
+}, { passive: false });
+
+/* Prevent non-left mouse buttons globally (mousedown) */
+document.addEventListener('mousedown', function(e) {
+  // e.button: 0 left, 1 middle, 2 right
+  if (e.button !== 0) {
+    e.preventDefault();
+    registerAttempt();
+    return false;
+  }
+  // If blocked, block left clicks too
+  if (blocked) {
+    e.preventDefault();
+    return false;
+  }
+}, { passive: false });
+
+/* Block common devtools/view-source/print shortcuts */
+document.addEventListener('keydown', function(e) {
+  // Normalize key values
+  const key = e.key;
+  const ctrl = e.ctrlKey || e.metaKey; // include Cmd on Mac
+  const shift = e.shiftKey;
+
+  // Block F12
+  if (e.key === 'F12') {
+    e.preventDefault();
+    registerAttempt();
+    return;
+  }
+
+  // Block Ctrl+U, Ctrl+S, Ctrl+P (print), Ctrl+Shift+I/J
+  if (ctrl && (key === 'u' || key === 'U' || key === 's' || key === 'S' || key === 'p' || key === 'P')) {
+    e.preventDefault();
+    registerAttempt();
+    return;
+  }
+  if (ctrl && shift && (key === 'I' || key === 'i' || key === 'J' || key === 'j')) {
+    e.preventDefault();
+    registerAttempt();
+    return;
+  }
+
+  // If overlay is active, block all key actions
+  if (blocked) {
+    e.preventDefault();
+    return;
+  }
+}, { passive: false });
+
+/* Extra: if user tries to open devtools via devtools detection trick (best-effort) */
+/* Note: not reliable across browsers; minimal detection to increase attempts if noticed */
+(function detectDevTools() {
+  let open = false;
+  const threshold = 160;
+  setInterval(function() {
+    const widthDiff = window.outerWidth - window.innerWidth;
+    const heightDiff = window.outerHeight - window.innerHeight;
+    if ((widthDiff > threshold) || (heightDiff > threshold)) {
+      // likely devtools opened
+      if (!open) {
+        open = true;
+        registerAttempt();
+      }
+    } else {
+      open = false;
+    }
+  }, 1000);
+})();
+
+/* Accessibility: ensure left-click controls still work while not blocked */
+/* No changes required — left-click interactions are allowed unless overlay active */
+
+// Final note: users can bypass by disabling JS or using external tools.
+// This is only a deterrent for casual visitors.
+</script>
 
 </body>
 </html>
